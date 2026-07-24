@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Squardle Solver</title>
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+<div class="app">
+  <header>
+    <h1>Squardle Solver</h1>
+    <p class="subtitle">Find every valid word hidden in a Squaredle-style letter grid.</p>
+  </header>
+
+  <section class="panel" id="wordlist-panel">
+    <h2>1. Word list</h2>
+    <p class="hint">
+      Upload a plain text file with one word per line (e.g. an exported TWL06 / NWL2020 / NWL2023 Scrabble word list).
+      It's stored locally in your browser so you only need to upload it once.
+    </p>
+    <div class="row">
+      <label class="file-btn">
+        Upload word list
+        <input type="file" id="wordlist-file" accept=".txt,.dic,text/plain" />
+      </label>
+      <button id="load-sample" class="secondary">Load small sample list</button>
+      <button id="clear-wordlist" class="secondary danger">Clear stored list</button>
+      <span id="wordlist-status" class="status">No word list loaded.</span>
+    </div>
+  </section>
+
+  <section class="panel" id="grid-panel">
+    <h2>2. Grid</h2>
+    <div class="row">
+      <label>Rows
+        <input type="number" id="rows" min="2" max="10" value="4" />
+      </label>
+      <label>Cols
+        <input type="number" id="cols" min="2" max="10" value="4" />
+      </label>
+      <button id="resize-grid" class="secondary">Resize</button>
+      <button id="clear-grid" class="secondary">Clear letters</button>
+      <button id="randomize-grid" class="secondary">Random demo grid</button>
+    </div>
+
+    <div class="grid-area">
+      <div id="grid" class="grid"></div>
+      <svg id="path-overlay"></svg>
+    </div>
+
+    <details class="paste-block">
+      <summary>Paste whole grid instead</summary>
+      <p class="hint">One row per line. Letters may be separated by spaces, or run together (e.g. <code>ABCD</code> or <code>A B C D</code>). Use a space or <code>_</code> for blank cells.</p>
+      <textarea id="paste-area" rows="6" placeholder="ABCD&#10;EFGH&#10;IJKL&#10;MNOP"></textarea>
+      <button id="paste-load" class="secondary">Load pasted grid</button>
+    </details>
+  </section>
+
+  <section class="panel" id="options-panel">
+    <h2>3. Options</h2>
+    <div class="row">
+      <label>Minimum word length
+        <input type="number" id="min-length" min="2" max="10" value="3" />
+      </label>
+      <label class="checkbox">
+        <input type="checkbox" id="diagonals" checked />
+        Allow diagonal moves
+      </label>
+      <button id="solve" class="primary">Solve</button>
+    </div>
+  </section>
+
+  <section class="panel" id="results-panel">
+    <h2>Results <span id="results-count" class="status"></span></h2>
+    <div class="row results-controls" id="results-controls" hidden>
+      <label>Sort
+        <select id="sort-by">
+          <option value="length-desc">Longest first</option>
+          <option value="length-asc">Shortest first</option>
+          <option value="alpha">Alphabetical</option>
+          <option value="score-desc">Highest score first</option>
+        </select>
+      </label>
+    </div>
+    <div id="results" class="results"></div>
+  </section>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>

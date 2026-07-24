@@ -1,0 +1,319 @@
+:root {
+  --bg: #f6f7f9;
+  --panel: #ffffff;
+  --border: #dfe3e8;
+  --text: #1c2430;
+  --muted: #6b7684;
+  --accent: #3b6df0;
+  --accent-dark: #2a53c4;
+  --cell-bg: #eef1f6;
+  --cell-active: #dbe6ff;
+  --danger: #c94545;
+  --radius: 10px;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+}
+
+.app {
+  max-width: 780px;
+  margin: 0 auto;
+  padding: 24px 16px 64px;
+}
+
+header h1 {
+  margin: 0 0 4px;
+  font-size: 1.6rem;
+}
+
+.subtitle {
+  margin: 0 0 20px;
+  color: var(--muted);
+}
+
+.panel {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 16px 18px;
+  margin-bottom: 16px;
+}
+
+.panel h2 {
+  margin: 0 0 10px;
+  font-size: 1.05rem;
+}
+
+.hint {
+  margin: 0 0 12px;
+  color: var(--muted);
+  font-size: 0.88rem;
+  line-height: 1.4;
+}
+
+.hint code {
+  background: var(--cell-bg);
+  padding: 1px 5px;
+  border-radius: 4px;
+}
+
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+label {
+  font-size: 0.85rem;
+  color: var(--muted);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+label.checkbox {
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+}
+
+input[type="number"] {
+  width: 64px;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 0.95rem;
+}
+
+select {
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 0.9rem;
+}
+
+button {
+  cursor: pointer;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  padding: 8px 14px;
+  font-size: 0.88rem;
+  background: var(--panel);
+  color: var(--text);
+}
+
+button.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: white;
+  font-weight: 600;
+}
+
+button.primary:hover {
+  background: var(--accent-dark);
+}
+
+button.secondary:hover {
+  background: var(--cell-bg);
+}
+
+button.danger {
+  color: var(--danger);
+}
+
+.file-btn {
+  position: relative;
+  overflow: hidden;
+  display: inline-flex;
+  align-items: center;
+  cursor: pointer;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  padding: 8px 14px;
+  font-size: 0.88rem;
+  background: var(--panel);
+  color: var(--text);
+}
+
+.file-btn:hover {
+  background: var(--cell-bg);
+}
+
+.file-btn input[type="file"] {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.status {
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.grid-area {
+  position: relative;
+  display: inline-block;
+  margin-top: 8px;
+}
+
+.grid {
+  display: grid;
+  gap: 6px;
+}
+
+.cell {
+  position: relative;
+  width: 52px;
+  height: 52px;
+}
+
+.cell input {
+  width: 100%;
+  height: 100%;
+  text-align: center;
+  font-size: 1.3rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--cell-bg);
+  color: var(--text);
+  padding: 0;
+}
+
+.cell input:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.cell.active input {
+  background: var(--cell-active);
+  border-color: var(--accent);
+}
+
+.cell .order-badge {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  background: var(--accent);
+  color: white;
+  font-size: 0.65rem;
+  font-weight: 700;
+  border-radius: 50%;
+  width: 18px;
+  height: 18px;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+  pointer-events: none;
+}
+
+.cell.active .order-badge {
+  display: flex;
+}
+
+#path-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+#path-overlay line {
+  stroke: var(--accent);
+  stroke-width: 3;
+  stroke-linecap: round;
+  opacity: 0.75;
+}
+
+.paste-block {
+  margin-top: 14px;
+}
+
+.paste-block summary {
+  cursor: pointer;
+  color: var(--accent);
+  font-size: 0.88rem;
+  font-weight: 600;
+}
+
+.paste-block textarea {
+  width: 100%;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 1rem;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  margin: 8px 0;
+  resize: vertical;
+}
+
+.results {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.results-controls {
+  margin-bottom: 4px;
+}
+
+.results:empty::after {
+  content: "No results yet. Load a word list, fill the grid, and click Solve.";
+  color: var(--muted);
+  font-size: 0.88rem;
+}
+
+.word-chip {
+  border: 1px solid var(--border);
+  background: var(--cell-bg);
+  border-radius: 999px;
+  padding: 5px 12px;
+  font-size: 0.88rem;
+  cursor: default;
+  display: inline-flex;
+  align-items: baseline;
+  gap: 5px;
+}
+
+.word-chip:hover,
+.word-chip.hovered {
+  background: var(--cell-active);
+  border-color: var(--accent);
+}
+
+.word-chip .score {
+  color: var(--muted);
+  font-size: 0.72rem;
+}
+
+.length-group {
+  width: 100%;
+  margin-top: 10px;
+}
+
+.length-group:first-child {
+  margin-top: 0;
+}
+
+.length-group h3 {
+  margin: 0 0 6px;
+  font-size: 0.82rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
