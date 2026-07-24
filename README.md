@@ -90,8 +90,11 @@ back mostly blank/uniform are automatically marked as holes instead of
 guessed at. Each cell is auto-inverted and binarized before recognition
 (tuned against real dark-tile, light-on-dark-text Squaredle screenshots,
 which otherwise trip up an OCR model mostly trained on normal dark-on-light
-text), and a lone "I" — a thin stroke Tesseract's layout analysis tends to
-discard as noise — is caught by a geometry-based fallback. The OCR engine (a
+text), then eroded to strip out the thin tile-border line that otherwise
+survives cropping and confuses recognition. A lone "I" — a thin stroke
+Tesseract's layout analysis tends to discard, or misreads as some other
+letter entirely — is caught by a geometry check that runs regardless of
+what Tesseract returns. The OCR engine (a
 few MB) is fetched from a CDN the first time you use this feature, so it
 needs an internet connection on first use; after that it's cached by the
 browser. OCR still isn't perfect — the recognized grid is always editable

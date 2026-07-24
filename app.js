@@ -571,7 +571,8 @@ dom.sortBy.addEventListener('change', () => {
 const TESSERACT_CDN_URL = 'https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js';
 const OCR_CROP_PX = 140; // working resolution for the initial per-cell crop
 const OCR_CELL_PX = 200; // final padded canvas size handed to Tesseract
-const OCR_CELL_INSET = 0.1; // fraction trimmed off each side of a cell before cropping
+const OCR_CELL_INSET = 0.12; // fraction trimmed off each side of a cell before cropping
+const OCR_ERODE_ITERATIONS = 3; // shrink passes to strip thin tile-border remnants after binarizing
 const OCR_PAD_FRAC = 0.16; // quiet white margin added around the binarized glyph
 const OCR_BLANK_STDDEV_THRESHOLD = 12; // below this, a cell is treated as a hole rather than OCR'd
 
@@ -759,15 +760,23 @@ window.addEventListener('resize', () => {
 // ---- Recognition ----
 //
 // Tuned against real Squaredle-style screenshots (dark rounded tiles, bold
-// light-on-dark letters): raw crops fed straight to Tesseract were unreliable
-// (~73% on a synthetic test grid) because (a) light-on-dark text confuses a
-// model mostly trained on dark-on-light text, (b) the rounded tile
-// background/border adds noise right at each cell's edge, and (c) an
-// isolated "I" is just a thin stroke that Tesseract's layout analysis often
-// discards as noise before classification ever runs. Auto-inverting +
-// binarizing (Otsu) fixed (a)/(b); a geometric fallback for (c) (a very
-// tall, narrow, dense, centered ink blob has no other realistic match in
-// A-Z) brought the same test grid to 100%.
+// light-on-dark letters). Raw crops fed straight to Tesseract were unreliable
+// because (a) light-on-dark text confuses a model mostly trained on
+// dark-on-light text, (b) each cell's rounded tile border is thin but not
+// thin enough to reliably crop out — any margin small enough to avoid
+// clipping real photos (which, unlike a synthetic render, rarely have the
+// grid perfectly axis-aligned with the crop box) still lets a sliver of
+// border through, and once binarized that sliver reads as "ink" spanning
+// almost the whole cell, and (c) an isolated "I" is just a thin stroke that
+// Tesseract's layout analysis often discards as noise before classification
+// ever runs. Auto-inverting + binarizing (Otsu) fixed (a); eroding away thin
+// structures after binarizing strips the border remnant from (b) while a
+// solid letter stroke survives; a geometric override for (c) (a tall,
+// narrow, dense ink blob has no other realistic match in A-Z, regardless of
+// exactly where it sits horizontally after an imperfect crop) catches "I"
+// even when Tesseract confidently returns some other letter instead of
+// nothing. Verified at 100% against both synthetic test grids and a real
+// Squaredle photo.
 
 function isCellBlank(ctx, size) {
   const { data } = ctx.getImageData(0, 0, size, size);
@@ -847,8 +856,53 @@ function binarizeCell(srcCanvas) {
   return out;
 }
 
+// Morphological erosion: drop any ink pixel touching a non-ink neighbor.
+// A thin one-pixel-wide line (a leftover tile border) disappears in a couple
+// of passes; a real letter stroke is thick enough to mostly survive.
+function erodeCell(canvas, iterations) {
+  const size = canvas.width;
+  const ctx = canvas.getContext('2d');
+  for (let iter = 0; iter < iterations; iter++) {
+    const { data } = ctx.getImageData(0, 0, size, size);
+    const ink = new Uint8Array(size * size);
+    for (let p = 0; p < size * size; p++) ink[p] = data[p * 4] < 128 ? 1 : 0;
+
+    const shrunk = new Uint8Array(size * size);
+    for (let y = 0; y < size; y++) {
+      for (let x = 0; x < size; x++) {
+        let v = ink[y * size + x];
+        if (v) {
+          for (const [dx, dy] of [[-1, 0], [1, 0], [0, -1], [0, 1]]) {
+            const nx = x + dx;
+            const ny = y + dy;
+            if (nx < 0 || nx >= size || ny < 0 || ny >= size || !ink[ny * size + nx]) {
+              v = 0;
+              break;
+            }
+          }
+        }
+        shrunk[y * size + x] = v;
+      }
+    }
+
+    const out = ctx.createImageData(size, size);
+    for (let p = 0; p < size * size; p++) {
+      const val = shrunk[p] ? 0 : 255;
+      out.data[p * 4] = val;
+      out.data[p * 4 + 1] = val;
+      out.data[p * 4 + 2] = val;
+      out.data[p * 4 + 3] = 255;
+    }
+    ctx.putImageData(out, 0, 0);
+  }
+  return canvas;
+}
+
 // A lone "I" is just a thin vertical stroke — measurably distinct (tall,
-// narrow, dense, centered) from every other uppercase letter's ink blob.
+// narrow, dense) from every other uppercase letter's ink blob. The
+// centering check is deliberately loose: an imperfect crop can leave the
+// stroke sitting well off dead-center, but nothing else in A-Z produces
+// this shape anywhere in the frame.
 function looksLikeLetterI(canvas) {
   const size = canvas.width;
   const { data } = canvas.getContext('2d').getImageData(0, 0, size, size);
@@ -874,7 +928,7 @@ function looksLikeLetterI(canvas) {
   const aspect = h / w;
   const density = inkCount / (w * h);
   const cx = (minX + maxX) / 2 / size;
-  return aspect > 2.5 && w < size * 0.15 && density > 0.7 && cx > 0.35 && cx < 0.65;
+  return aspect > 2.5 && w < size * 0.15 && density > 0.7 && cx > 0.15 && cx < 0.85;
 }
 
 async function runOcr() {
@@ -931,6 +985,7 @@ async function runOcr() {
         }
 
         const bw = binarizeCell(cropCanvas);
+        erodeCell(bw, OCR_ERODE_ITERATIONS);
 
         // Place the clean glyph, shrunk, onto a padded white canvas — Tesseract
         // reads isolated characters far more reliably with a quiet margin.
@@ -943,10 +998,17 @@ async function runOcr() {
         const pad = OCR_CELL_PX * OCR_PAD_FRAC;
         finalCtx.drawImage(bw, 0, 0, OCR_CROP_PX, OCR_CROP_PX, pad, pad, OCR_CELL_PX - 2 * pad, OCR_CELL_PX - 2 * pad);
 
-        const { data } = await worker.recognize(finalCanvas);
-        const match = (data.text || '').toUpperCase().match(/[A-Z]/);
-        let letter = match ? match[0] : '';
-        if (!letter && looksLikeLetterI(bw)) letter = 'I';
+        // Checked unconditionally, not just as an empty-result fallback: on
+        // real photos Tesseract often returns some *other* confident-but-wrong
+        // letter for an isolated "I" rather than nothing at all.
+        let letter;
+        if (looksLikeLetterI(bw)) {
+          letter = 'I';
+        } else {
+          const { data } = await worker.recognize(finalCanvas);
+          const match = (data.text || '').toUpperCase().match(/[A-Z]/);
+          letter = match ? match[0] : '';
+        }
         newGrid[r][c] = letter;
         done++;
       }
