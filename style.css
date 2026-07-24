@@ -32,6 +32,21 @@ body {
 header h1 {
   margin: 0 0 4px;
   font-size: 1.6rem;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+header h1 .version {
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: var(--muted);
+  background: var(--cell-bg);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 2px 9px;
+  letter-spacing: 0.02em;
 }
 
 .subtitle {
