@@ -70,10 +70,18 @@ function updateWordlistStatus(text) {
   dom.wordlistStatus.textContent = text;
 }
 
+function extractWord(line) {
+  // Takes the leading run of letters and drops everything after it, so a
+  // line like "CARE - to feel concern" or "care, v. to feel..." reduces to
+  // just "CARE" regardless of what separates the word from its definition.
+  const match = line.trim().match(/^[A-Za-z]+/);
+  return match ? match[0].toUpperCase() : '';
+}
+
 function loadWordsIntoApp(rawText, sourceLabel, persist = true) {
   const words = rawText
     .split(/\r?\n/)
-    .map((w) => w.trim().toUpperCase())
+    .map(extractWord)
     .filter((w) => /^[A-Z]{2,}$/.test(w));
   const unique = Array.from(new Set(words));
 

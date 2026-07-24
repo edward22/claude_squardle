@@ -37,6 +37,11 @@ as the public-domain [ENABLE word
 list](https://github.com/dolph/dictionary) if you want a free
 Scrabble-like approximation.
 
+If your list has definitions after each word (e.g. `CARE - to feel
+concern`, `care, v. to feel...`, tab-separated glosses, etc.), you don't
+need to clean it up first — only the leading run of letters on each line is
+kept, everything after it is dropped automatically.
+
 The uploaded list is cached in your browser's `localStorage`, so you only
 need to upload it once per browser (until you clear it or clear site data).
 Very large lists (a few MB+) may exceed the browser's storage quota — if
