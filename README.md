@@ -87,10 +87,14 @@ for best accuracy), then click **Run OCR**.
 Recognition runs one grid cell at a time using
 [Tesseract.js](https://github.com/naptha/tesseract.js) — cells that come
 back mostly blank/uniform are automatically marked as holes instead of
-guessed at. The OCR engine (a few MB) is fetched from a CDN the first time
-you use this feature, so it needs an internet connection on first use; after
-that it's cached by the browser. OCR is never perfect (isolated glyphs like
-a lone "I" are a known hard case) — the recognized grid is always editable
+guessed at. Each cell is auto-inverted and binarized before recognition
+(tuned against real dark-tile, light-on-dark-text Squaredle screenshots,
+which otherwise trip up an OCR model mostly trained on normal dark-on-light
+text), and a lone "I" — a thin stroke Tesseract's layout analysis tends to
+discard as noise — is caught by a geometry-based fallback. The OCR engine (a
+few MB) is fetched from a CDN the first time you use this feature, so it
+needs an internet connection on first use; after that it's cached by the
+browser. OCR still isn't perfect — the recognized grid is always editable
 afterward, so review it before hitting Solve.
 
 ## Options

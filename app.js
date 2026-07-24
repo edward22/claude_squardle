@@ -569,7 +569,10 @@ dom.sortBy.addEventListener('change', () => {
 // ---------- OCR (fill grid from a pasted/uploaded screenshot) ----------
 
 const TESSERACT_CDN_URL = 'https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js';
-const OCR_CELL_PX = 200; // upscaled render size per cell before recognition
+const OCR_CROP_PX = 140; // working resolution for the initial per-cell crop
+const OCR_CELL_PX = 200; // final padded canvas size handed to Tesseract
+const OCR_CELL_INSET = 0.1; // fraction trimmed off each side of a cell before cropping
+const OCR_PAD_FRAC = 0.16; // quiet white margin added around the binarized glyph
 const OCR_BLANK_STDDEV_THRESHOLD = 12; // below this, a cell is treated as a hole rather than OCR'd
 
 let tesseractLoadPromise = null;
@@ -754,6 +757,17 @@ window.addEventListener('resize', () => {
 });
 
 // ---- Recognition ----
+//
+// Tuned against real Squaredle-style screenshots (dark rounded tiles, bold
+// light-on-dark letters): raw crops fed straight to Tesseract were unreliable
+// (~73% on a synthetic test grid) because (a) light-on-dark text confuses a
+// model mostly trained on dark-on-light text, (b) the rounded tile
+// background/border adds noise right at each cell's edge, and (c) an
+// isolated "I" is just a thin stroke that Tesseract's layout analysis often
+// discards as noise before classification ever runs. Auto-inverting +
+// binarizing (Otsu) fixed (a)/(b); a geometric fallback for (c) (a very
+// tall, narrow, dense, centered ink blob has no other realistic match in
+// A-Z) brought the same test grid to 100%.
 
 function isCellBlank(ctx, size) {
   const { data } = ctx.getImageData(0, 0, size, size);
@@ -776,6 +790,93 @@ function isCellBlank(ctx, size) {
   return Math.sqrt(Math.max(variance, 0)) < OCR_BLANK_STDDEV_THRESHOLD;
 }
 
+// Grayscale + auto-invert (so text always ends up dark-on-light) + Otsu
+// threshold, producing a clean black/white canvas the same size as the input.
+function binarizeCell(srcCanvas) {
+  const size = srcCanvas.width;
+  const { data } = srcCanvas.getContext('2d').getImageData(0, 0, size, size);
+  const gray = new Float64Array(size * size);
+  const hist = new Array(256).fill(0);
+  let sum = 0;
+  for (let p = 0; p < size * size; p++) {
+    const i = p * 4;
+    const g = 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2];
+    gray[p] = g;
+    hist[Math.round(g)]++;
+    sum += g;
+  }
+  const invert = sum / (size * size) < 128;
+
+  const total = size * size;
+  let sumAll = 0;
+  for (let t = 0; t < 256; t++) sumAll += t * hist[t];
+  let sumB = 0;
+  let weightBg = 0;
+  let bestVariance = 0;
+  let threshold = 128;
+  for (let t = 0; t < 256; t++) {
+    weightBg += hist[t];
+    if (weightBg === 0) continue;
+    const weightFg = total - weightBg;
+    if (weightFg === 0) break;
+    sumB += t * hist[t];
+    const meanBg = sumB / weightBg;
+    const meanFg = (sumAll - sumB) / weightFg;
+    const variance = weightBg * weightFg * (meanBg - meanFg) * (meanBg - meanFg);
+    if (variance > bestVariance) {
+      bestVariance = variance;
+      threshold = t;
+    }
+  }
+
+  const out = document.createElement('canvas');
+  out.width = size;
+  out.height = size;
+  const octx = out.getContext('2d');
+  const outData = octx.createImageData(size, size);
+  for (let p = 0; p < size * size; p++) {
+    const isInk = invert ? 255 - gray[p] < 255 - threshold : gray[p] < threshold;
+    const val = isInk ? 0 : 255;
+    const idx = p * 4;
+    outData.data[idx] = val;
+    outData.data[idx + 1] = val;
+    outData.data[idx + 2] = val;
+    outData.data[idx + 3] = 255;
+  }
+  octx.putImageData(outData, 0, 0);
+  return out;
+}
+
+// A lone "I" is just a thin vertical stroke — measurably distinct (tall,
+// narrow, dense, centered) from every other uppercase letter's ink blob.
+function looksLikeLetterI(canvas) {
+  const size = canvas.width;
+  const { data } = canvas.getContext('2d').getImageData(0, 0, size, size);
+  let minX = size;
+  let maxX = -1;
+  let minY = size;
+  let maxY = -1;
+  let inkCount = 0;
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      if (data[(y * size + x) * 4] < 128) {
+        inkCount++;
+        if (x < minX) minX = x;
+        if (x > maxX) maxX = x;
+        if (y < minY) minY = y;
+        if (y > maxY) maxY = y;
+      }
+    }
+  }
+  if (inkCount === 0) return false;
+  const w = maxX - minX + 1;
+  const h = maxY - minY + 1;
+  const aspect = h / w;
+  const density = inkCount / (w * h);
+  const cx = (minX + maxX) / 2 / size;
+  return aspect > 2.5 && w < size * 0.15 && density > 0.7 && cx > 0.35 && cx < 0.65;
+}
+
 async function runOcr() {
   if (!dom.ocrImage.src) return;
   dom.ocrRun.disabled = true;
@@ -796,36 +897,57 @@ async function runOcr() {
 
     let done = 0;
     const total = rows * cols;
+    const cellW = srcW / cols;
+    const cellH = srcH / rows;
+    // Trim in from each cell's raw slice so a rounded tile's border/gap
+    // with its neighbor never bleeds into the crop.
+    const insetX = cellW * OCR_CELL_INSET;
+    const insetY = cellH * OCR_CELL_INSET;
 
     for (let r = 0; r < rows; r++) {
       for (let c = 0; c < cols; c++) {
         updateOcrStatus(`Reading cell ${done + 1} of ${total}…`);
 
-        const cellCanvas = document.createElement('canvas');
-        cellCanvas.width = OCR_CELL_PX;
-        cellCanvas.height = OCR_CELL_PX;
-        const ctx = cellCanvas.getContext('2d');
-        ctx.drawImage(
+        const cropCanvas = document.createElement('canvas');
+        cropCanvas.width = OCR_CROP_PX;
+        cropCanvas.height = OCR_CROP_PX;
+        const cropCtx = cropCanvas.getContext('2d');
+        cropCtx.drawImage(
           dom.ocrImage,
-          srcX + (c / cols) * srcW,
-          srcY + (r / rows) * srcH,
-          srcW / cols,
-          srcH / rows,
+          srcX + c * cellW + insetX,
+          srcY + r * cellH + insetY,
+          cellW - 2 * insetX,
+          cellH - 2 * insetY,
           0,
           0,
-          OCR_CELL_PX,
-          OCR_CELL_PX
+          OCR_CROP_PX,
+          OCR_CROP_PX
         );
 
-        if (isCellBlank(ctx, OCR_CELL_PX)) {
+        if (isCellBlank(cropCtx, OCR_CROP_PX)) {
           newHoles[r][c] = true;
           done++;
           continue;
         }
 
-        const { data } = await worker.recognize(cellCanvas);
+        const bw = binarizeCell(cropCanvas);
+
+        // Place the clean glyph, shrunk, onto a padded white canvas — Tesseract
+        // reads isolated characters far more reliably with a quiet margin.
+        const finalCanvas = document.createElement('canvas');
+        finalCanvas.width = OCR_CELL_PX;
+        finalCanvas.height = OCR_CELL_PX;
+        const finalCtx = finalCanvas.getContext('2d');
+        finalCtx.fillStyle = 'white';
+        finalCtx.fillRect(0, 0, OCR_CELL_PX, OCR_CELL_PX);
+        const pad = OCR_CELL_PX * OCR_PAD_FRAC;
+        finalCtx.drawImage(bw, 0, 0, OCR_CROP_PX, OCR_CROP_PX, pad, pad, OCR_CELL_PX - 2 * pad, OCR_CELL_PX - 2 * pad);
+
+        const { data } = await worker.recognize(finalCanvas);
         const match = (data.text || '').toUpperCase().match(/[A-Z]/);
-        newGrid[r][c] = match ? match[0] : '';
+        let letter = match ? match[0] : '';
+        if (!letter && looksLikeLetterI(bw)) letter = 'I';
+        newGrid[r][c] = letter;
         done++;
       }
     }
