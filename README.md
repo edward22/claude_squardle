@@ -58,10 +58,40 @@ that happens the app tells you and you'll need to re-upload each visit.
   MNOP
   ```
   Space-separate tokens if you need multi-letter tiles in one cell (e.g. a
-  `QU` tile), and use `_` for a blank/unusable cell.
-- **Resize** changes the grid dimensions (2–10 per side).
-- **Random demo grid** fills the grid with randomized, frequency-weighted
-  letters for quick testing.
+  `QU` tile), and use `_` for a hole (a cell that's simply not part of the
+  grid's shape — common in Squaredle's irregular layouts).
+- **Resize** changes the grid dimensions (2–10 per side), preserving both
+  letters and holes that still fit.
+- **Random demo grid** fills the non-hole cells with randomized,
+  frequency-weighted letters for quick testing.
+
+### Holes (irregular grid shapes)
+
+Squaredle grids aren't always a clean rectangle — some cells are simply
+absent. Click **Mark holes**, then tap any cell to toggle it as a hole
+(shown with a hatched pattern, excluded from solving); tap **Mark holes**
+again to go back to normal typing. **Clear holes** resets the grid back to
+a full rectangle. Holes persist through resize, and **Clear letters**
+leaves them in place (it only wipes typed letters) — use **Clear holes**
+when you want to start over with a full rectangle.
+
+### Fill the grid from a screenshot (OCR)
+
+Open **Fill grid from a screenshot (OCR)** under the grid. Set the rows/cols
+above to match the screenshot first, then get an image in one of three ways:
+click the paste box and press Ctrl/Cmd+V, drag an image file onto it, or use
+**Upload screenshot**. Drag the blue crop box's corner handles so it tightly
+covers just the letter grid (crop out any surrounding UI/buttons/score text
+for best accuracy), then click **Run OCR**.
+
+Recognition runs one grid cell at a time using
+[Tesseract.js](https://github.com/naptha/tesseract.js) — cells that come
+back mostly blank/uniform are automatically marked as holes instead of
+guessed at. The OCR engine (a few MB) is fetched from a CDN the first time
+you use this feature, so it needs an internet connection on first use; after
+that it's cached by the browser. OCR is never perfect (isolated glyphs like
+a lone "I" are a known hard case) — the recognized grid is always editable
+afterward, so review it before hitting Solve.
 
 ## Options
 

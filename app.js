@@ -21,6 +21,9 @@ const dom = {
   resizeGrid: document.getElementById('resize-grid'),
   clearGrid: document.getElementById('clear-grid'),
   randomizeGrid: document.getElementById('randomize-grid'),
+  holeMode: document.getElementById('hole-mode'),
+  clearHoles: document.getElementById('clear-holes'),
+  holeHint: document.getElementById('hole-hint'),
   grid: document.getElementById('grid'),
   overlay: document.getElementById('path-overlay'),
   pasteArea: document.getElementById('paste-area'),
@@ -32,6 +35,14 @@ const dom = {
   resultsControls: document.getElementById('results-controls'),
   sortBy: document.getElementById('sort-by'),
   results: document.getElementById('results'),
+  ocrPasteZone: document.getElementById('ocr-paste-zone'),
+  ocrFile: document.getElementById('ocr-file'),
+  ocrRun: document.getElementById('ocr-run'),
+  ocrClear: document.getElementById('ocr-clear'),
+  ocrStatus: document.getElementById('ocr-status'),
+  ocrImageWrap: document.getElementById('ocr-image-wrap'),
+  ocrImage: document.getElementById('ocr-image'),
+  ocrCrop: document.getElementById('ocr-crop'),
 };
 
 let trieRoot = null;
@@ -39,11 +50,13 @@ let wordCount = 0;
 let cellInputs = [];
 let cellDivs = [];
 let lastResults = [];
+let holeModeActive = false;
 
 const state = {
   rows: 4,
   cols: 4,
   grid: Array.from({ length: 4 }, () => Array(4).fill('')),
+  holes: Array.from({ length: 4 }, () => Array(4).fill(false)),
 };
 
 // ---------- Trie ----------
@@ -137,9 +150,16 @@ dom.clearWordlist.addEventListener('click', () => {
 
 // ---------- Grid model ----------
 
+function emptyHoles(rows, cols) {
+  return Array.from({ length: rows }, () => Array(cols).fill(false));
+}
+
 function persistGrid() {
   try {
-    localStorage.setItem(GRID_KEY, JSON.stringify({ rows: state.rows, cols: state.cols, grid: state.grid }));
+    localStorage.setItem(
+      GRID_KEY,
+      JSON.stringify({ rows: state.rows, cols: state.cols, grid: state.grid, holes: state.holes })
+    );
   } catch (err) {
     /* ignore quota errors for grid state */
   }
@@ -152,6 +172,7 @@ function restoreGridState() {
       state.rows = saved.rows;
       state.cols = saved.cols;
       state.grid = saved.grid;
+      state.holes = Array.isArray(saved.holes) ? saved.holes : emptyHoles(saved.rows, saved.cols);
       return;
     }
   } catch (err) {
@@ -171,14 +192,20 @@ function renderGrid() {
     cellInputs.push([]);
     cellDivs.push([]);
     for (let c = 0; c < state.cols; c++) {
+      const isHole = !!(state.holes[r] && state.holes[r][c]);
+
       const cellDiv = document.createElement('div');
-      cellDiv.className = 'cell';
+      cellDiv.className = isHole ? 'cell hole' : 'cell';
+      cellDiv.addEventListener('click', () => {
+        if (holeModeActive) toggleHole(r, c);
+      });
 
       const input = document.createElement('input');
       input.maxLength = 4;
       input.autocomplete = 'off';
       input.spellcheck = false;
-      input.value = (state.grid[r] && state.grid[r][c]) || '';
+      input.disabled = isHole;
+      input.value = isHole ? '' : (state.grid[r] && state.grid[r][c]) || '';
       input.addEventListener('input', (e) => onCellInput(e, r, c));
       input.addEventListener('keydown', (e) => onCellKeydown(e, r, c));
 
@@ -194,7 +221,15 @@ function renderGrid() {
     }
   }
 
+  dom.grid.classList.toggle('hole-mode', holeModeActive);
   updateOverlaySize();
+}
+
+function toggleHole(r, c) {
+  state.holes[r][c] = !state.holes[r][c];
+  if (state.holes[r][c]) state.grid[r][c] = '';
+  persistGrid();
+  renderGrid();
 }
 
 function onCellInput(e, r, c) {
@@ -224,16 +259,21 @@ function focusCell([r, c]) {
 
 function resizeGridTo(newRows, newCols) {
   const newGrid = [];
+  const newHoles = [];
   for (let r = 0; r < newRows; r++) {
     const row = [];
+    const holeRow = [];
     for (let c = 0; c < newCols; c++) {
       row.push((state.grid[r] && state.grid[r][c]) || '');
+      holeRow.push(!!(state.holes[r] && state.holes[r][c]));
     }
     newGrid.push(row);
+    newHoles.push(holeRow);
   }
   state.rows = newRows;
   state.cols = newCols;
   state.grid = newGrid;
+  state.holes = newHoles;
   persistGrid();
   renderGrid();
 }
@@ -245,6 +285,7 @@ dom.resizeGrid.addEventListener('click', () => {
 });
 
 dom.clearGrid.addEventListener('click', () => {
+  // Leaves hole shape intact; only wipes typed letters.
   state.grid = Array.from({ length: state.rows }, () => Array(state.cols).fill(''));
   persistGrid();
   renderGrid();
@@ -252,9 +293,28 @@ dom.clearGrid.addEventListener('click', () => {
 });
 
 dom.randomizeGrid.addEventListener('click', () => {
-  state.grid = Array.from({ length: state.rows }, () =>
-    Array.from({ length: state.cols }, () => RANDOM_LETTER_POOL[Math.floor(Math.random() * RANDOM_LETTER_POOL.length)])
+  state.grid = state.grid.map((row, r) =>
+    row.map((_, c) =>
+      (state.holes[r] && state.holes[r][c])
+        ? ''
+        : RANDOM_LETTER_POOL[Math.floor(Math.random() * RANDOM_LETTER_POOL.length)]
+    )
   );
+  persistGrid();
+  renderGrid();
+  clearHighlight();
+});
+
+dom.holeMode.addEventListener('click', () => {
+  holeModeActive = !holeModeActive;
+  dom.holeMode.classList.toggle('active', holeModeActive);
+  dom.holeMode.setAttribute('aria-pressed', String(holeModeActive));
+  dom.holeHint.hidden = !holeModeActive;
+  dom.grid.classList.toggle('hole-mode', holeModeActive);
+});
+
+dom.clearHoles.addEventListener('click', () => {
+  state.holes = emptyHoles(state.rows, state.cols);
   persistGrid();
   renderGrid();
   clearHighlight();
@@ -263,9 +323,10 @@ dom.randomizeGrid.addEventListener('click', () => {
 dom.pasteLoad.addEventListener('click', () => {
   const parsed = parsePastedGrid(dom.pasteArea.value);
   if (!parsed) return;
-  state.rows = parsed.length;
-  state.cols = parsed[0].length;
-  state.grid = parsed;
+  state.rows = parsed.grid.length;
+  state.cols = parsed.grid[0].length;
+  state.grid = parsed.grid;
+  state.holes = parsed.holes;
   persistGrid();
   renderGrid();
   clearHighlight();
@@ -274,18 +335,19 @@ dom.pasteLoad.addEventListener('click', () => {
 function parsePastedGrid(text) {
   const lines = text.split('\n').map((l) => l.replace(/\r$/, '')).filter((l) => l.trim().length > 0);
   if (lines.length === 0) return null;
-  const rows = lines.map((line) => {
+  const tokenRows = lines.map((line) => {
     const trimmed = line.trim();
-    if (/\s/.test(trimmed)) {
-      return trimmed.split(/\s+/).map((tok) => (tok === '_' ? '' : tok.toUpperCase()));
-    }
-    return trimmed.split('').map((ch) => (ch === '_' ? '' : ch.toUpperCase()));
+    if (/\s/.test(trimmed)) return trimmed.split(/\s+/);
+    return trimmed.split('');
   });
-  const cols = Math.max(...rows.map((r) => r.length));
-  rows.forEach((r) => {
-    while (r.length < cols) r.push('');
+  const cols = Math.max(...tokenRows.map((r) => r.length));
+  tokenRows.forEach((r) => {
+    while (r.length < cols) r.push('_');
   });
-  return rows;
+  return {
+    grid: tokenRows.map((row) => row.map((tok) => (tok === '_' ? '' : tok.toUpperCase()))),
+    holes: tokenRows.map((row) => row.map((tok) => tok === '_')),
+  };
 }
 
 function clamp(n, min, max) {
@@ -503,6 +565,289 @@ function renderResults(entries) {
 dom.sortBy.addEventListener('change', () => {
   if (lastResults.length) renderResults(lastResults);
 });
+
+// ---------- OCR (fill grid from a pasted/uploaded screenshot) ----------
+
+const TESSERACT_CDN_URL = 'https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js';
+const OCR_CELL_PX = 200; // upscaled render size per cell before recognition
+const OCR_BLANK_STDDEV_THRESHOLD = 12; // below this, a cell is treated as a hole rather than OCR'd
+
+let tesseractLoadPromise = null;
+let ocrWorker = null;
+let ocrImageURL = null;
+// Crop box stored as fractions (0-1) of the displayed image, so it survives resizes/scaling.
+let cropBox = { x: 0.05, y: 0.05, w: 0.9, h: 0.9 };
+let cropDragMode = null;
+let cropDragStart = null;
+let cropDragStartBox = null;
+
+function updateOcrStatus(text) {
+  dom.ocrStatus.textContent = text;
+}
+
+function loadTesseract() {
+  if (window.Tesseract) return Promise.resolve(window.Tesseract);
+  if (tesseractLoadPromise) return tesseractLoadPromise;
+  tesseractLoadPromise = new Promise((resolve, reject) => {
+    const script = document.createElement('script');
+    script.src = TESSERACT_CDN_URL;
+    script.onload = () => resolve(window.Tesseract);
+    script.onerror = () => {
+      tesseractLoadPromise = null;
+      reject(new Error('Could not load the OCR engine — check your internet connection.'));
+    };
+    document.head.appendChild(script);
+  });
+  return tesseractLoadPromise;
+}
+
+async function getOcrWorker() {
+  if (ocrWorker) return ocrWorker;
+  updateOcrStatus('Loading OCR engine…');
+  const Tesseract = await loadTesseract();
+  const worker = await Tesseract.createWorker('eng', 1, {
+    logger: (m) => {
+      if (m.status && typeof m.progress === 'number') {
+        updateOcrStatus(`${m.status}… ${Math.round(m.progress * 100)}%`);
+      }
+    },
+  });
+  await worker.setParameters({
+    tessedit_char_whitelist: 'ABCDEFGHIJKLMNOPQRSTUVWXYZ',
+    tessedit_pageseg_mode: Tesseract.PSM.SINGLE_BLOCK,
+  });
+  ocrWorker = worker;
+  return worker;
+}
+
+// ---- Image loading (paste / drop / upload) ----
+
+function loadImageFromBlob(blob) {
+  if (ocrImageURL) URL.revokeObjectURL(ocrImageURL);
+  ocrImageURL = URL.createObjectURL(blob);
+  dom.ocrImage.onload = () => {
+    dom.ocrImageWrap.hidden = false;
+    dom.ocrRun.hidden = false;
+    dom.ocrClear.hidden = false;
+    cropBox = { x: 0.05, y: 0.05, w: 0.9, h: 0.9 };
+    renderCropBox();
+  };
+  dom.ocrImage.src = ocrImageURL;
+}
+
+dom.ocrPasteZone.addEventListener('paste', (e) => {
+  const items = e.clipboardData && e.clipboardData.items;
+  if (!items) return;
+  for (const item of items) {
+    if (item.type.startsWith('image/')) {
+      const blob = item.getAsFile();
+      if (blob) {
+        loadImageFromBlob(blob);
+        updateOcrStatus('Image pasted. Adjust the crop box, then Run OCR.');
+      }
+      e.preventDefault();
+      break;
+    }
+  }
+});
+
+dom.ocrPasteZone.addEventListener('dragover', (e) => {
+  e.preventDefault();
+  dom.ocrPasteZone.classList.add('dragover');
+});
+dom.ocrPasteZone.addEventListener('dragleave', () => {
+  dom.ocrPasteZone.classList.remove('dragover');
+});
+dom.ocrPasteZone.addEventListener('drop', (e) => {
+  e.preventDefault();
+  dom.ocrPasteZone.classList.remove('dragover');
+  const file = e.dataTransfer.files && e.dataTransfer.files[0];
+  if (file && file.type.startsWith('image/')) {
+    loadImageFromBlob(file);
+    updateOcrStatus('Image dropped. Adjust the crop box, then Run OCR.');
+  }
+});
+
+dom.ocrFile.addEventListener('change', (e) => {
+  const file = e.target.files[0];
+  if (file) {
+    loadImageFromBlob(file);
+    updateOcrStatus('Image uploaded. Adjust the crop box, then Run OCR.');
+  }
+});
+
+dom.ocrClear.addEventListener('click', () => {
+  if (ocrImageURL) {
+    URL.revokeObjectURL(ocrImageURL);
+    ocrImageURL = null;
+  }
+  dom.ocrImage.removeAttribute('src');
+  dom.ocrImageWrap.hidden = true;
+  dom.ocrRun.hidden = true;
+  dom.ocrClear.hidden = true;
+  dom.ocrFile.value = '';
+  updateOcrStatus('');
+});
+
+// ---- Crop box drag / resize ----
+
+function renderCropBox() {
+  const rect = dom.ocrImage.getBoundingClientRect();
+  dom.ocrCrop.style.left = `${cropBox.x * rect.width}px`;
+  dom.ocrCrop.style.top = `${cropBox.y * rect.height}px`;
+  dom.ocrCrop.style.width = `${cropBox.w * rect.width}px`;
+  dom.ocrCrop.style.height = `${cropBox.h * rect.height}px`;
+}
+
+function startCropDrag(e, mode) {
+  cropDragMode = mode;
+  cropDragStart = { x: e.clientX, y: e.clientY };
+  cropDragStartBox = { ...cropBox };
+  e.target.setPointerCapture(e.pointerId);
+  e.preventDefault();
+  e.stopPropagation();
+}
+
+dom.ocrCrop.addEventListener('pointerdown', (e) => {
+  if (e.target.classList.contains('ocr-handle')) return;
+  startCropDrag(e, 'move');
+});
+
+dom.ocrCrop.querySelectorAll('.ocr-handle').forEach((handle) => {
+  handle.addEventListener('pointerdown', (e) => startCropDrag(e, handle.dataset.handle));
+});
+
+document.addEventListener('pointermove', (e) => {
+  if (!cropDragMode) return;
+  const rect = dom.ocrImage.getBoundingClientRect();
+  if (!rect.width || !rect.height) return;
+  const dx = (e.clientX - cropDragStart.x) / rect.width;
+  const dy = (e.clientY - cropDragStart.y) / rect.height;
+  const minSize = 0.05;
+
+  if (cropDragMode === 'move') {
+    cropBox = {
+      ...cropDragStartBox,
+      x: clamp(cropDragStartBox.x + dx, 0, 1 - cropDragStartBox.w),
+      y: clamp(cropDragStartBox.y + dy, 0, 1 - cropDragStartBox.h),
+    };
+  } else {
+    let left = cropDragStartBox.x;
+    let top = cropDragStartBox.y;
+    let right = cropDragStartBox.x + cropDragStartBox.w;
+    let bottom = cropDragStartBox.y + cropDragStartBox.h;
+    if (cropDragMode.includes('w')) left = clamp(cropDragStartBox.x + dx, 0, right - minSize);
+    if (cropDragMode.includes('e')) right = clamp(right + dx, left + minSize, 1);
+    if (cropDragMode.includes('n')) top = clamp(cropDragStartBox.y + dy, 0, bottom - minSize);
+    if (cropDragMode.includes('s')) bottom = clamp(bottom + dy, top + minSize, 1);
+    cropBox = { x: left, y: top, w: right - left, h: bottom - top };
+  }
+  renderCropBox();
+});
+
+document.addEventListener('pointerup', () => {
+  cropDragMode = null;
+});
+
+window.addEventListener('resize', () => {
+  if (!dom.ocrImageWrap.hidden) renderCropBox();
+});
+
+// ---- Recognition ----
+
+function isCellBlank(ctx, size) {
+  const { data } = ctx.getImageData(0, 0, size, size);
+  const margin = Math.floor(size * 0.15);
+  let sum = 0;
+  let sumSq = 0;
+  let count = 0;
+  for (let y = margin; y < size - margin; y += 2) {
+    for (let x = margin; x < size - margin; x += 2) {
+      const i = (y * size + x) * 4;
+      const brightness = (data[i] + data[i + 1] + data[i + 2]) / 3;
+      sum += brightness;
+      sumSq += brightness * brightness;
+      count++;
+    }
+  }
+  if (count === 0) return true;
+  const mean = sum / count;
+  const variance = sumSq / count - mean * mean;
+  return Math.sqrt(Math.max(variance, 0)) < OCR_BLANK_STDDEV_THRESHOLD;
+}
+
+async function runOcr() {
+  if (!dom.ocrImage.src) return;
+  dom.ocrRun.disabled = true;
+  try {
+    const worker = await getOcrWorker();
+
+    const rows = state.rows;
+    const cols = state.cols;
+    const naturalW = dom.ocrImage.naturalWidth;
+    const naturalH = dom.ocrImage.naturalHeight;
+    const srcX = cropBox.x * naturalW;
+    const srcY = cropBox.y * naturalH;
+    const srcW = cropBox.w * naturalW;
+    const srcH = cropBox.h * naturalH;
+
+    const newGrid = Array.from({ length: rows }, () => Array(cols).fill(''));
+    const newHoles = emptyHoles(rows, cols);
+
+    let done = 0;
+    const total = rows * cols;
+
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < cols; c++) {
+        updateOcrStatus(`Reading cell ${done + 1} of ${total}…`);
+
+        const cellCanvas = document.createElement('canvas');
+        cellCanvas.width = OCR_CELL_PX;
+        cellCanvas.height = OCR_CELL_PX;
+        const ctx = cellCanvas.getContext('2d');
+        ctx.drawImage(
+          dom.ocrImage,
+          srcX + (c / cols) * srcW,
+          srcY + (r / rows) * srcH,
+          srcW / cols,
+          srcH / rows,
+          0,
+          0,
+          OCR_CELL_PX,
+          OCR_CELL_PX
+        );
+
+        if (isCellBlank(ctx, OCR_CELL_PX)) {
+          newHoles[r][c] = true;
+          done++;
+          continue;
+        }
+
+        const { data } = await worker.recognize(cellCanvas);
+        const match = (data.text || '').toUpperCase().match(/[A-Z]/);
+        newGrid[r][c] = match ? match[0] : '';
+        done++;
+      }
+    }
+
+    state.grid = newGrid;
+    state.holes = newHoles;
+    persistGrid();
+    renderGrid();
+
+    const letterCount = newGrid.flat().filter(Boolean).length;
+    const holeCount = newHoles.flat().filter(Boolean).length;
+    updateOcrStatus(
+      `Done — recognized ${letterCount} letter${letterCount === 1 ? '' : 's'}, ${holeCount} likely hole${holeCount === 1 ? '' : 's'}. Please check the grid before solving.`
+    );
+  } catch (err) {
+    updateOcrStatus(err.message || 'OCR failed.');
+  } finally {
+    dom.ocrRun.disabled = false;
+  }
+}
+
+dom.ocrRun.addEventListener('click', runOcr);
 
 // ---------- Init ----------
 

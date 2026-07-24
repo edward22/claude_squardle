@@ -44,6 +44,11 @@
       <button id="clear-grid" class="secondary">Clear letters</button>
       <button id="randomize-grid" class="secondary">Random demo grid</button>
     </div>
+    <div class="row">
+      <button id="hole-mode" class="secondary toggle" aria-pressed="false">Mark holes</button>
+      <button id="clear-holes" class="secondary">Clear holes</button>
+      <span id="hole-hint" class="status" hidden>Tap a cell to toggle it as a hole (not usable in words). Tap "Mark holes" again to stop.</span>
+    </div>
 
     <div class="grid-area">
       <div id="grid" class="grid"></div>
@@ -52,9 +57,39 @@
 
     <details class="paste-block">
       <summary>Paste whole grid instead</summary>
-      <p class="hint">One row per line. Letters may be separated by spaces, or run together (e.g. <code>ABCD</code> or <code>A B C D</code>). Use a space or <code>_</code> for blank cells.</p>
+      <p class="hint">One row per line. Letters may be separated by spaces, or run together (e.g. <code>ABCD</code> or <code>A B C D</code>). Use a space or <code>_</code> for a hole (blank, unusable cell).</p>
       <textarea id="paste-area" rows="6" placeholder="ABCD&#10;EFGH&#10;IJKL&#10;MNOP"></textarea>
       <button id="paste-load" class="secondary">Load pasted grid</button>
+    </details>
+
+    <details class="ocr-block">
+      <summary>Fill grid from a screenshot (OCR)</summary>
+      <p class="hint">
+        Set rows/cols above to match the screenshot first. Paste an image (click the box below, then Ctrl/Cmd+V),
+        drop one on it, or upload it. Drag the crop handles so the box tightly covers just the letter grid — no
+        extra UI around it — then run OCR. Mostly-blank cells are auto-detected as holes. OCR needs an internet
+        connection the first time (it downloads the recognition engine), and the result is never perfect, so
+        review the grid before solving.
+      </p>
+      <div id="ocr-paste-zone" tabindex="0">Click here, then paste a screenshot — or drop / upload one below</div>
+      <div class="row">
+        <label class="file-btn">
+          Upload screenshot
+          <input type="file" id="ocr-file" accept="image/*" />
+        </label>
+        <button id="ocr-run" class="primary" hidden>Run OCR</button>
+        <button id="ocr-clear" class="secondary" hidden>Clear image</button>
+        <span id="ocr-status" class="status"></span>
+      </div>
+      <div id="ocr-image-wrap" class="ocr-image-wrap" hidden>
+        <img id="ocr-image" alt="Pasted screenshot" />
+        <div id="ocr-crop" class="ocr-crop">
+          <div class="ocr-handle" data-handle="nw"></div>
+          <div class="ocr-handle" data-handle="ne"></div>
+          <div class="ocr-handle" data-handle="sw"></div>
+          <div class="ocr-handle" data-handle="se"></div>
+        </div>
+      </div>
     </details>
   </section>
 
