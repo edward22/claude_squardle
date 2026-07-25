@@ -40,7 +40,8 @@ Scrabble-like approximation.
 If your list has definitions after each word (e.g. `CARE - to feel
 concern`, `care, v. to feel...`, tab-separated glosses, etc.), you don't
 need to clean it up first — only the leading run of letters on each line is
-kept, everything after it is dropped automatically.
+used as the word itself, but the rest isn't discarded: it's kept as that
+word's definition and shown in the results (see below).
 
 The uploaded list is cached in your browser's `localStorage`, so you only
 need to upload it once per browser (until you clear it or clear site data).
@@ -102,15 +103,26 @@ afterward, so review it before hitting Solve.
 
 ## Options
 
-- **Minimum word length** — default 3.
+- **Minimum word length** — default 4.
 - **Allow diagonal moves** — on by default, matching Squaredle; turn off for
   orthogonal-only (Boggle "no diagonals") variants.
 
 ## Results
 
 Words are grouped and sorted (longest first by default, or alphabetical /
-by Scrabble score). Hover, focus, or click a word to see its path
-highlighted on the grid, numbered in order.
+by Scrabble score — score is still used for that sort option even though
+it's no longer shown on each word). Hover, focus, or click a word to see
+its path highlighted on the grid, numbered in order.
+
+Each word has a small **i** button that opens a popup with its definition
+(if your word list included one for that word — see above) and a link to
+that word's English Wiktionary page.
+
+## Dark mode
+
+The **Dark mode** / **Light mode** button in the header switches themes;
+your choice is remembered per browser. With no saved preference yet, it
+follows your system/browser setting automatically.
 
 ## Files
 

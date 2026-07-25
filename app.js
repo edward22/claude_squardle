@@ -1,7 +1,9 @@
 'use strict';
 
 const WORDLIST_KEY = 'squardle:wordlist';
+const WORDLIST_DEFS_KEY = 'squardle:worddefs';
 const GRID_KEY = 'squardle:grid';
+const THEME_KEY = 'squardle:theme';
 
 const LETTER_VALUES = {
   A: 1, B: 3, C: 3, D: 2, E: 1, F: 4, G: 2, H: 4, I: 1, J: 8, K: 5, L: 1, M: 3,
@@ -43,14 +45,23 @@ const dom = {
   ocrImageWrap: document.getElementById('ocr-image-wrap'),
   ocrImage: document.getElementById('ocr-image'),
   ocrCrop: document.getElementById('ocr-crop'),
+  themeToggle: document.getElementById('theme-toggle'),
+  wordPopover: document.getElementById('word-popover'),
+  popoverWord: document.getElementById('popover-word'),
+  popoverDefinition: document.getElementById('popover-definition'),
+  popoverLink: document.getElementById('popover-link'),
+  popoverClose: document.getElementById('popover-close'),
 };
 
 let trieRoot = null;
 let wordCount = 0;
+let wordDefinitions = new Map();
 let cellInputs = [];
 let cellDivs = [];
 let lastResults = [];
 let holeModeActive = false;
+let popoverAnchor = null;
+let popoverOpenedAt = 0;
 
 const state = {
   rows: 4,
@@ -83,19 +94,28 @@ function updateWordlistStatus(text) {
   dom.wordlistStatus.textContent = text;
 }
 
-function extractWord(line) {
-  // Takes the leading run of letters and drops everything after it, so a
-  // line like "CARE - to feel concern" or "care, v. to feel..." reduces to
-  // just "CARE" regardless of what separates the word from its definition.
-  const match = line.trim().match(/^[A-Za-z]+/);
-  return match ? match[0].toUpperCase() : '';
+function parseWordLine(line) {
+  // Takes the leading run of letters as the word; anything left over (after
+  // stripping a leading separator like " - ", ": ", ", ", etc.) is kept as
+  // that word's definition, e.g. "CARE - to feel concern" -> CARE / "to feel
+  // concern", "care, v. worry" -> CARE / "v. worry".
+  const trimmed = line.trim();
+  const match = trimmed.match(/^([A-Za-z]+)(.*)$/);
+  if (!match) return { word: '', definition: '' };
+  const word = match[1].toUpperCase();
+  const definition = match[2].replace(/^[\s\-–—:,.;]+/, '').trim();
+  return { word, definition };
 }
 
 function loadWordsIntoApp(rawText, sourceLabel, persist = true) {
-  const words = rawText
-    .split(/\r?\n/)
-    .map(extractWord)
-    .filter((w) => /^[A-Z]{2,}$/.test(w));
+  const words = [];
+  const definitions = new Map();
+  for (const line of rawText.split(/\r?\n/)) {
+    const { word, definition } = parseWordLine(line);
+    if (!/^[A-Z]{2,}$/.test(word)) continue;
+    words.push(word);
+    if (definition && !definitions.has(word)) definitions.set(word, definition);
+  }
   const unique = Array.from(new Set(words));
 
   if (unique.length === 0) {
@@ -106,6 +126,7 @@ function loadWordsIntoApp(rawText, sourceLabel, persist = true) {
   const built = buildTrieFromWords(unique);
   trieRoot = built.root;
   wordCount = built.count;
+  wordDefinitions = definitions;
   updateWordlistStatus(`${wordCount.toLocaleString()} words loaded (${sourceLabel}).`);
 
   if (persist) {
@@ -115,6 +136,11 @@ function loadWordsIntoApp(rawText, sourceLabel, persist = true) {
       updateWordlistStatus(
         `${wordCount.toLocaleString()} words loaded (${sourceLabel}) — too large to save locally, you'll need to re-upload next visit.`
       );
+    }
+    try {
+      localStorage.setItem(WORDLIST_DEFS_KEY, JSON.stringify(Object.fromEntries(definitions)));
+    } catch (err) {
+      /* defs are a nice-to-have; skip silently if they don't fit */
     }
   }
 }
@@ -143,8 +169,10 @@ dom.loadSample.addEventListener('click', async () => {
 
 dom.clearWordlist.addEventListener('click', () => {
   localStorage.removeItem(WORDLIST_KEY);
+  localStorage.removeItem(WORDLIST_DEFS_KEY);
   trieRoot = null;
   wordCount = 0;
+  wordDefinitions = new Map();
   updateWordlistStatus('No word list loaded.');
 });
 
@@ -464,7 +492,7 @@ dom.solve.addEventListener('click', () => {
     updateWordlistStatus('Load a word list before solving.');
     return;
   }
-  const minLen = clamp(parseInt(dom.minLength.value, 10) || 3, 2, 10);
+  const minLen = clamp(parseInt(dom.minLength.value, 10) || 4, 2, 10);
   const allowDiagonal = dom.diagonals.checked;
   const gridLetters = state.grid.map((row) => row.map((cell) => cell.trim()));
   const hasLetters = gridLetters.some((row) => row.some((c) => c));
@@ -510,12 +538,20 @@ function makeChip(entry) {
 
   const word = document.createElement('span');
   word.textContent = entry.word;
-  const score = document.createElement('span');
-  score.className = 'score';
-  score.textContent = `${entry.word.length}L·${entry.score}pt`;
+
+  const infoBtn = document.createElement('button');
+  infoBtn.type = 'button';
+  infoBtn.className = 'info-btn';
+  infoBtn.textContent = 'i';
+  infoBtn.setAttribute('aria-label', `Definition and dictionary link for ${entry.word}`);
+  infoBtn.setAttribute('aria-expanded', 'false');
+  infoBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    toggleWordPopover(infoBtn, entry.word);
+  });
 
   chip.appendChild(word);
-  chip.appendChild(score);
+  chip.appendChild(infoBtn);
 
   chip.addEventListener('mouseenter', () => {
     chip.classList.add('hovered');
@@ -531,6 +567,82 @@ function makeChip(entry) {
 
   return chip;
 }
+
+// ---- Word definition popover ----
+
+function closeWordPopover() {
+  dom.wordPopover.hidden = true;
+  if (popoverAnchor) popoverAnchor.setAttribute('aria-expanded', 'false');
+  popoverAnchor = null;
+}
+
+function positionWordPopover(anchorBtn) {
+  const margin = 8;
+  const rect = anchorBtn.getBoundingClientRect();
+  dom.wordPopover.style.left = `${rect.left}px`;
+  dom.wordPopover.style.top = `${rect.bottom + margin}px`;
+
+  requestAnimationFrame(() => {
+    const popRect = dom.wordPopover.getBoundingClientRect();
+    const viewportW = document.documentElement.clientWidth;
+    const viewportH = document.documentElement.clientHeight;
+
+    let left = rect.left;
+    if (left + popRect.width + margin > viewportW) left = Math.max(margin, viewportW - popRect.width - margin);
+
+    let top = rect.bottom + margin;
+    if (top + popRect.height + margin > viewportH) top = Math.max(margin, rect.top - popRect.height - margin);
+
+    dom.wordPopover.style.left = `${left}px`;
+    dom.wordPopover.style.top = `${top}px`;
+  });
+}
+
+function toggleWordPopover(anchorBtn, word) {
+  if (popoverAnchor === anchorBtn) {
+    closeWordPopover();
+    return;
+  }
+
+  const definition = wordDefinitions.get(word);
+  dom.popoverWord.textContent = word;
+  dom.popoverDefinition.textContent = definition || 'No definition available in your word list.';
+  dom.popoverDefinition.classList.toggle('muted', !definition);
+  dom.popoverLink.href = `https://en.wiktionary.org/wiki/${encodeURIComponent(word.toLowerCase())}`;
+
+  dom.wordPopover.hidden = false;
+  positionWordPopover(anchorBtn);
+  anchorBtn.setAttribute('aria-expanded', 'true');
+  popoverAnchor = anchorBtn;
+  popoverOpenedAt = Date.now();
+}
+
+dom.popoverClose.addEventListener('click', closeWordPopover);
+
+document.addEventListener('click', (e) => {
+  if (dom.wordPopover.hidden) return;
+  if (dom.wordPopover.contains(e.target)) return;
+  closeWordPopover();
+});
+
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') closeWordPopover();
+});
+
+// Opening a popover can itself trigger a scroll (e.g. the browser scrolling
+// a partly-offscreen button into view for the click) — ignore scrolls in
+// that brief window so the popover doesn't close the instant it opens.
+window.addEventListener(
+  'scroll',
+  () => {
+    if (!dom.wordPopover.hidden && Date.now() - popoverOpenedAt > 250) closeWordPopover();
+  },
+  true
+);
+
+window.addEventListener('resize', () => {
+  if (!dom.wordPopover.hidden) closeWordPopover();
+});
 
 function renderResults(entries) {
   sortEntries(entries, dom.sortBy.value);
@@ -1033,12 +1145,38 @@ async function runOcr() {
 
 dom.ocrRun.addEventListener('click', runOcr);
 
+// ---------- Theme ----------
+
+function applyTheme(theme) {
+  document.documentElement.setAttribute('data-theme', theme);
+  dom.themeToggle.textContent = theme === 'dark' ? 'Light mode' : 'Dark mode';
+  dom.themeToggle.setAttribute('aria-pressed', String(theme === 'dark'));
+}
+
+dom.themeToggle.addEventListener('click', () => {
+  const next = document.documentElement.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
+  applyTheme(next);
+  try {
+    localStorage.setItem(THEME_KEY, next);
+  } catch (err) {
+    /* ignore; theme just won't persist */
+  }
+});
+
 // ---------- Init ----------
 
 (function init() {
+  applyTheme(document.documentElement.getAttribute('data-theme') || 'light');
+
   const savedWords = localStorage.getItem(WORDLIST_KEY);
   if (savedWords) {
     loadWordsIntoApp(savedWords, 'restored from browser storage', false);
+    try {
+      const savedDefs = localStorage.getItem(WORDLIST_DEFS_KEY);
+      if (savedDefs) wordDefinitions = new Map(Object.entries(JSON.parse(savedDefs)));
+    } catch (err) {
+      /* ignore corrupt/missing definitions cache */
+    }
   }
   restoreGridState();
   renderGrid();
